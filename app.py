@@ -10,20 +10,20 @@ st.markdown("""
 <style>
     /* 1. GLOBAL SETTINGS */
     .stApp {
-        background-color: #0E1117; /* Very Dark Background */
-        color: #FFB74D; /* Default Light Orange Text */
+        background-color: #0E1117;
+        color: #FFB74D;
     }
     h1, h2, h3, h4, h5, h6 {
-        color: #FF9800 !important; /* Strong Orange Headers */
+        color: #FF9800 !important;
     }
     p, div, span {
-        color: #FFB74D; /* Light Orange Body Text */
+        color: #FFB74D;
     }
     
     /* 2. CARD STYLES */
     .court-card {
-        background-color: #1E1E1E; /* Dark Card Background */
-        border: 1px solid #FF9800; /* Orange Border */
+        background-color: #1E1E1E;
+        border: 1px solid #FF9800;
         border-radius: 10px;
         padding: 20px;
         transition: transform 0.2s;
@@ -35,14 +35,13 @@ st.markdown("""
         box-shadow: 0 0 10px rgba(255, 152, 0, 0.4);
     }
     
-    /* Specific text overrides for the card to ensure contrast */
     .card-header {
         color: #FF9800 !important;
         font-weight: bold;
         font-size: 1.3em;
     }
     .card-sub {
-        color: #FFE0B2 !important; /* Pale Orange */
+        color: #FFE0B2 !important;
         font-size: 0.9em;
     }
     .card-stat {
@@ -52,7 +51,7 @@ st.markdown("""
     
     /* 3. TASK BOX */
     .task-container {
-        background-color: #332600; /* Very Dark Orange/Brown */
+        background-color: #332600;
         border: 1px solid #FFC107;
         color: #FFECB3 !important;
         padding: 15px;
@@ -60,20 +59,30 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* 4. BUTTONS & PILLS */
+    /* 4. BUTTONS */
     div.stButton > button {
-        color: #000000 !important; /* Black text on buttons for readability */
+        color: #000000 !important;
         font-weight: bold;
     }
 
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. DATA LOADING ---
+# --- 1. DATA LOADING (DEBUGGABLE) ---
 @st.cache_data
 def load_excel_data():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, 'data.xlsx')
+    
+    # DEBUG: Print where we are looking (Visible in logs only)
+    print(f"DEBUG: Looking for file at {file_path}")
+    
+    if not os.path.exists(file_path):
+        st.error(f"❌ CRITICAL ERROR: Could not find 'data.xlsx'.")
+        st.info(f"The app is looking in: {current_dir}")
+        st.info("Make sure the file is named exactly 'data.xlsx' (case sensitive) in your GitHub repo.")
+        return None, None
+
     try:
         kit = pd.read_excel(file_path, sheet_name='StadiumKit IDs', header=1)
         try:
@@ -81,7 +90,9 @@ def load_excel_data():
         except:
             feeds = pd.read_excel(file_path, sheet_name='Feeds', header=None)
         return kit, feeds
-    except:
+    except Exception as e:
+        st.error(f"❌ DATA LOADING ERROR: {e}")
+        st.info("Check: Did you add 'openpyxl' to your requirements.txt?")
         return None, None
 
 def check_excel_status(df, court_name, row_label):
@@ -103,12 +114,15 @@ def check_excel_status(df, court_name, row_label):
     except:
         return False
 
-# --- 2. LOGIC ENGINE ---
+# --- 2. LOGIC ENGINE (SAFE INITIALIZATION) ---
 if 'court_data' not in st.session_state:
+    # 1. Initialize as empty FIRST to prevent KeyErrors if loading fails
+    st.session_state['court_data'] = {} 
+    
+    # 2. Try to load data
     kit_df, feeds_df = load_excel_data()
+    
     if kit_df is not None:
-        st.session_state['court_data'] = {}
-        
         full_prod_assets = [
             "Camera 1", "Camera 2", "Camera 3", "Camera 4", "Camera 0",
             "Near Mic L", "Near Mic R", "Far Mic L", "Far Mic R", "Umpire Mic",
@@ -133,8 +147,6 @@ if 'court_data' not in st.session_state:
                 if feeds_df is not None and "Camera" in item:
                     is_done = check_excel_status(feeds_df, c_name, item)
                 
-                # Default State: 0 (Not Rigged)
-                # If Excel says done, we jump to State 2 (Tested)
                 state = 2 if is_done else 0 
                 st.session_state['court_data'][c_name]['items'][item] = state
 
@@ -143,26 +155,26 @@ if 'selected_court' not in st.session_state:
 
 # --- 3. HELPER FUNCTIONS ---
 def cycle_state(court, item):
-    # 0 -> 1 -> 2 -> 0
-    current = st.session_state['court_data'][court]['items'][item]
-    new_state = (current + 1) % 3
-    st.session_state['court_data'][court]['items'][item] = new_state
+    if court in st.session_state['court_data']:
+        current = st.session_state['court_data'][court]['items'][item]
+        new_state = (current + 1) % 3
+        st.session_state['court_data'][court]['items'][item] = new_state
 
 def calculate_progress(court):
+    if court not in st.session_state['court_data']: return 0
     items = st.session_state['court_data'][court]['items']
     total_points = len(items) * 2 
     current_points = sum(items.values())
     return int((current_points / total_points) * 100) if total_points > 0 else 0
 
 def get_next_tasks(court):
-    # Updated Logic: PRIORITISE RIGGING
+    if court not in st.session_state['court_data']: return []
     items = st.session_state['court_data'][court]['items']
     
     rig_tasks = []
     test_tasks = []
     
     for name, state in items.items():
-        # Label logic for task list
         if "Power" in name:
             if state == 0: rig_tasks.append(f"Locate {name}")
             elif state == 1: test_tasks.append(f"Get {name} Up & Running")
@@ -170,58 +182,67 @@ def get_next_tasks(court):
             if state == 0: rig_tasks.append(f"Rig {name}")
             elif state == 1: test_tasks.append(f"Test {name}")
             
-    # Combine: All Rigging tasks FIRST, then Testing tasks
     return rig_tasks + test_tasks
 
 # --- 4. RENDER: HOME PAGE ---
 if st.session_state['selected_court'] is None:
     st.title("🎾 Event Overview")
     
-    col_full, col_stream = st.columns(2)
-    
-    with col_full:
-        st.subheader("Production Courts")
-        for court, data in st.session_state['court_data'].items():
-            if "Full" in data['type']:
-                progress = calculate_progress(court)
-                color = "#4CAF50" if progress == 100 else "#FF9800"
-                st.markdown(f"""
-                <div class="court-card">
-                    <div class="card-header">{court}</div>
-                    <div class="card-sub">{data['type']}</div>
-                    <div style="background-color:#333; height:8px; border-radius:4px; overflow:hidden; margin: 10px 0;">
-                        <div style="width:{progress}%; background-color:{color}; height:100%;"></div>
+    # Check if data loaded correctly
+    if not st.session_state['court_data']:
+        st.warning("No court data found. Please fix the data loading error above.")
+    else:
+        col_full, col_stream = st.columns(2)
+        
+        with col_full:
+            st.subheader("Production Courts")
+            for court, data in st.session_state['court_data'].items():
+                if "Full" in data['type']:
+                    progress = calculate_progress(court)
+                    color = "#4CAF50" if progress == 100 else "#FF9800"
+                    st.markdown(f"""
+                    <div class="court-card">
+                        <div class="card-header">{court}</div>
+                        <div class="card-sub">{data['type']}</div>
+                        <div style="background-color:#333; height:8px; border-radius:4px; overflow:hidden; margin: 10px 0;">
+                            <div style="width:{progress}%; background-color:{color}; height:100%;"></div>
+                        </div>
+                        <div class="card-stat" style="text-align:right;">{progress}% Ready</div>
                     </div>
-                    <div class="card-stat" style="text-align:right;">{progress}% Ready</div>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button(f"Manage {court}", key=f"btn_{court}"):
-                    st.session_state['selected_court'] = court
-                    st.rerun()
+                    """, unsafe_allow_html=True)
+                    if st.button(f"Manage {court}", key=f"btn_{court}"):
+                        st.session_state['selected_court'] = court
+                        st.rerun()
 
-    with col_stream:
-        st.subheader("Streaming Courts")
-        for court, data in st.session_state['court_data'].items():
-            if "Streaming" in data['type']:
-                progress = calculate_progress(court)
-                color = "#4CAF50" if progress == 100 else "#FFC107"
-                st.markdown(f"""
-                <div class="court-card">
-                    <div class="card-header">{court}</div>
-                    <div class="card-sub">{data['type']}</div>
-                    <div style="background-color:#333; height:8px; border-radius:4px; overflow:hidden; margin: 10px 0;">
-                        <div style="width:{progress}%; background-color:{color}; height:100%;"></div>
+        with col_stream:
+            st.subheader("Streaming Courts")
+            for court, data in st.session_state['court_data'].items():
+                if "Streaming" in data['type']:
+                    progress = calculate_progress(court)
+                    color = "#4CAF50" if progress == 100 else "#FFC107"
+                    st.markdown(f"""
+                    <div class="court-card">
+                        <div class="card-header">{court}</div>
+                        <div class="card-sub">{data['type']}</div>
+                        <div style="background-color:#333; height:8px; border-radius:4px; overflow:hidden; margin: 10px 0;">
+                            <div style="width:{progress}%; background-color:{color}; height:100%;"></div>
+                        </div>
+                        <div class="card-stat" style="text-align:right;">{progress}% Ready</div>
                     </div>
-                    <div class="card-stat" style="text-align:right;">{progress}% Ready</div>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button(f"Manage {court}", key=f"btn_{court}"):
-                    st.session_state['selected_court'] = court
-                    st.rerun()
+                    """, unsafe_allow_html=True)
+                    if st.button(f"Manage {court}", key=f"btn_{court}"):
+                        st.session_state['selected_court'] = court
+                        st.rerun()
 
 # --- 5. RENDER: DETAIL VIEW ---
 else:
     court = st.session_state['selected_court']
+    
+    # Safety check in case session state gets weird
+    if court not in st.session_state['court_data']:
+        st.session_state['selected_court'] = None
+        st.rerun()
+        
     data = st.session_state['court_data'][court]
     
     c1, c2 = st.columns([1, 6])
@@ -247,7 +268,6 @@ else:
 
     st.divider()
 
-    # CATEGORY COLUMNS (Now 4 Columns)
     cats = {
         "🎥 Video": ["Camera"],
         "💾 Data": ["Data"],
@@ -261,49 +281,38 @@ else:
         with cols[i]:
             with st.container(border=True):
                 st.subheader(cat_name)
-                # Filter items
                 items = [k for k in data['items'].keys() if any(x in k for x in keywords)]
                 
                 for item in items:
                     state = data['items'][item]
                     is_power = "Power" in cat_name
                     
-                    # --- DYNAMIC LABEL LOGIC ---
                     if is_power:
                         if state == 0:
                             pill_text = "NOT PROVIDED"
                             pill_color = "#333" 
-                            text_col = "white"
                         elif state == 1:
                             pill_text = "LOCATED"
                             pill_color = "#FFC107" 
-                            text_col = "black"
                         else:
                             pill_text = "UP & RUNNING"
                             pill_color = "#4CAF50" 
-                            text_col = "white"
                     else:
                         if state == 0:
                             pill_text = "NOT RIGGED"
                             pill_color = "#333"
-                            text_col = "white"
                         elif state == 1:
                             pill_text = "RIGGED"
                             pill_color = "#2196F3"
-                            text_col = "white"
                         else:
                             pill_text = "TESTED"
                             pill_color = "#4CAF50"
-                            text_col = "white"
                     
-                    # Render
                     c_label, c_btn = st.columns([1.5, 1])
-                    # Force Orange Text for the Label
                     c_label.markdown(f"<div style='font-size:0.9em; margin-top:8px; color: #FFB74D; font-weight: 500;'>{item}</div>", unsafe_allow_html=True)
                     
                     if c_btn.button(pill_text, key=f"{court}_{item}", use_container_width=True):
                         cycle_state(court, item)
                         st.rerun()
                     
-                    # Status Indicator Line
                     st.markdown(f"<div style='height:3px; width:100%; background-color:{pill_color}; margin-top:-12px; margin-bottom:12px; border-radius:2px;'></div>", unsafe_allow_html=True)
