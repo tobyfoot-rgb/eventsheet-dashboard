@@ -311,8 +311,4 @@ else:
                     c_label, c_btn = st.columns([1.5, 1])
                     c_label.markdown(f"<div style='font-size:0.9em; margin-top:8px; color: #FFB74D; font-weight: 500;'>{item}</div>", unsafe_allow_html=True)
                     
-                    if c_btn.button(pill_text, key=f"{court}_{item}", use_container_width=True):
-                        cycle_state(court, item)
-                        st.rerun()
-                    
-                    st.markdown(f"<div style='height:3px; width:100%; background-color:{pill_color}; margin-top:-12px; margin-bottom:12px; border-radius:2px;'></div>", unsafe_allow_html=True)
+                    if c_btn.button(pill_text, key=f"{court
